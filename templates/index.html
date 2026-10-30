@@ -66,7 +66,7 @@
 <body>
 
 <h1>🥫 ShipScan</h1>
-<p>Upload or capture a photo of a food item to classify it and log it to your pantry.</p>
+<p>Upload or capture a food or household item. Animals and unrelated subjects are rejected.</p>
 
 {% if using_custom_model %}
 <div style="background:#e6f4ea;border:1px solid #2f6f4f;color:#1e4d33;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:14px;">
@@ -82,17 +82,18 @@
 {% endif %}
 
 <div class="card">
-    <h3>Option 1: Upload an Image</h3>
-    <input type="file" id="fileInput" accept="image/*">
+    <h3>Option 1: Upload or take a photo</h3>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
     <img id="preview" style="display:none;">
 </div>
 
 <div class="card">
     <h3>Option 2: Use Webcam</h3>
-    <video id="video" autoplay></video>
+    <video id="video" autoplay playsinline></video>
     <canvas id="canvas" style="display:none;"></canvas>
     <button id="startCam">Start Camera</button>
     <button id="captureBtn" style="display:none;">Capture Photo</button>
+    <button id="stopCam" style="display:none;">Stop Camera</button>
 </div>
 
 <div class="card">
@@ -108,7 +109,7 @@
     <button id="clearLogBtn">Clear Log</button>
     <table id="logTable">
         <thead>
-            <tr><th>Item</th><th>Confidence</th><th>Time</th></tr>
+            <tr><th>Item</th><th>Type</th><th>Confidence</th><th>Time</th></tr>
         </thead>
         <tbody id="logBody"></tbody>
     </table>
@@ -123,11 +124,13 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const startCamBtn = document.getElementById("startCam");
 const captureBtn = document.getElementById("captureBtn");
+const stopCamBtn = document.getElementById("stopCam");
 const predictBtn = document.getElementById("predictBtn");
 const resultDiv = document.getElementById("result");
 const confidenceList = document.getElementById("confidenceList");
 const additionalPredictions = document.getElementById("additionalPredictions");
 const logBody = document.getElementById("logBody");
+let cameraStream = null;
 
 fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
@@ -140,20 +143,45 @@ fileInput.addEventListener("change", () => {
 
 startCamBtn.addEventListener("click", async () => {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+        });
+        video.srcObject = cameraStream;
         video.style.display = "block";
         captureBtn.style.display = "inline-block";
+        stopCamBtn.style.display = "inline-block";
+        startCamBtn.style.display = "none";
     } catch (err) {
         alert("Could not access camera: " + err.message);
     }
 });
 
+function stopCamera() {
+    cameraStream?.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+    video.srcObject = null;
+    video.style.display = "none";
+    captureBtn.style.display = "none";
+    stopCamBtn.style.display = "none";
+    startCamBtn.style.display = "inline-block";
+}
+
+stopCamBtn.addEventListener("click", stopCamera);
+window.addEventListener("pagehide", stopCamera);
+
 captureBtn.addEventListener("click", () => {
+    if (!video.videoWidth || !video.videoHeight) {
+        resultDiv.textContent = "Camera is not ready yet. Please wait and try again.";
+        return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0);
     canvas.toBlob((blob) => {
+        if (!blob) {
+            resultDiv.textContent = "Could not capture the photo. Please try again.";
+            return;
+        }
         capturedBlob = blob;
         preview.src = URL.createObjectURL(blob);
         preview.style.display = "block";
@@ -180,9 +208,14 @@ predictBtn.addEventListener("click", async () => {
             resultDiv.textContent = "Error: " + data.error;
             return;
         }
+        if (data.is_valid === false) {
+            resultDiv.textContent = data.label;
+            refreshLog();
+            return;
+        }
 
         const source = data.recognition_source === "general"
-            ? "general food model"
+            ? `general ${data.item_type} model`
             : "your trained model";
         const scoreLabel = data.recognition_source === "general"
             ? "match score"
@@ -190,7 +223,7 @@ predictBtn.addEventListener("click", async () => {
         resultDiv.innerHTML = `Prediction: <strong>${data.label}</strong> (${data.confidence}% ${scoreLabel}, ${source})`;
 
         const confidenceHeading = data.recognition_source === "general"
-            ? "General food candidates:"
+            ? `General ${data.item_type} candidates:`
             : "Your trained model's class confidences:";
         confidenceList.innerHTML = `<h4>${confidenceHeading}</h4>`;
         for (const [cls, conf] of Object.entries(data.all_confidences)) {
@@ -202,9 +235,14 @@ predictBtn.addEventListener("click", async () => {
                 </div>`;
         }
 
-        if (data.additional_food_matches && data.additional_food_matches.length) {
-            additionalPredictions.innerHTML = "<h4>Other possible foods (general model match scores):</h4>";
-            for (const match of data.additional_food_matches) {
+        const otherMatches = data.item_type === "household"
+            ? data.additional_household_matches
+            : data.additional_food_matches;
+        if (otherMatches && otherMatches.length) {
+            additionalPredictions.innerHTML = data.item_type === "household"
+                ? "<h4>Other possible household items:</h4>"
+                : "<h4>Other possible foods (general model match scores):</h4>";
+            for (const match of otherMatches) {
                 const candidate = document.createElement("div");
                 candidate.textContent = `${match.label}: ${match.confidence}%`;
                 additionalPredictions.appendChild(candidate);
@@ -223,7 +261,7 @@ async function refreshLog() {
     logBody.innerHTML = "";
     data.slice().reverse().forEach(entry => {
         const row = document.createElement("tr");
-        row.innerHTML = `<td>${entry.item}</td><td>${entry.confidence}%</td><td>${entry.time}</td>`;
+        row.innerHTML = `<td>${entry.item}</td><td>${entry.item_type === "household" ? "Household" : "Food"}</td><td>${entry.confidence}%</td><td>${entry.time}</td>`;
         logBody.appendChild(row);
     });
 }

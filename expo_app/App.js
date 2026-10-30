@@ -51,10 +51,10 @@ export default function App() {
       const data = await res.json();
       setStatus(
         data.using_custom_model && data.using_general_food_model
-          ? '✅ Connected - using your trained model plus general food recognition'
+          ? '✅ Connected - using your trained model plus general food and household recognition'
           : data.using_general_food_model
-            ? '✅ Connected - using general food recognition'
-            : '⚠️ Connected, but server has no food recognition model'
+            ? '✅ Connected - using general food and household recognition'
+            : '⚠️ Connected, but server has no recognition model'
       );
     } catch (e) {
       setStatus('❌ Cannot reach server. Check the address, Wi-Fi, and that app.py is running.');
@@ -77,7 +77,7 @@ export default function App() {
 
       setResult(data);
       setError(null);
-      if (addToLog && data.confidence >= MIN_CONFIDENCE) {
+      if (addToLog && data.is_valid !== false && data.confidence >= MIN_CONFIDENCE) {
         setLog((prev) => [
           { item: data.label, confidence: data.confidence, time: new Date().toLocaleTimeString() },
           ...prev,
@@ -110,7 +110,7 @@ export default function App() {
     );
   }
 
-  const confident = result && result.confidence >= MIN_CONFIDENCE;
+  const confident = result && result.is_valid !== false && result.confidence >= MIN_CONFIDENCE;
   const scoreLabel = result && result.recognition_source === 'general' ? 'match score' : 'confidence';
 
   return (
@@ -155,7 +155,12 @@ export default function App() {
 
         {result && (
           <View style={styles.card}>
-            {confident ? (
+            {result.is_valid === false ? (
+              <>
+                <Text style={styles.resultMain}>This is not a household item or food.</Text>
+                <Text style={styles.sub}>Try scanning food or a common household item.</Text>
+              </>
+            ) : confident ? (
               <>
                 <Text style={styles.resultMain}>{result.label}</Text>
                 <Text style={styles.sub}>{result.confidence.toFixed(1)}% {scoreLabel}</Text>
@@ -168,9 +173,14 @@ export default function App() {
                 </Text>
               </>
             )}
-            <Text style={styles.sub}>
-              Recognized by {result.recognition_source === 'general' ? 'general food model' : 'your trained model'}
-            </Text>
+            {result.is_valid !== false && (
+              <Text style={styles.sub}>
+                {result.item_type === 'household' ? 'Household item' : 'Food'} · recognized by{' '}
+                {result.recognition_source === 'general'
+                  ? `general ${result.item_type} model`
+                  : 'your trained model'}
+              </Text>
+            )}
             {Object.entries(result.all_confidences || {}).map(([name, pct]) => (
               <View key={name} style={{ marginTop: 6 }}>
                 <Text style={styles.small}>{name}: {Number(pct).toFixed(1)}%</Text>
@@ -179,10 +189,16 @@ export default function App() {
                 </View>
               </View>
             ))}
-            {!!(result.additional_food_matches || []).length && (
+            {!!(result.item_type === 'household'
+              ? (result.additional_household_matches || []).length
+              : (result.additional_food_matches || []).length) && (
               <View style={{ marginTop: 12 }}>
-                <Text style={styles.cardTitle}>Other possible foods</Text>
-                {result.additional_food_matches.map((match) => (
+                <Text style={styles.cardTitle}>
+                  {result.item_type === 'household' ? 'Other possible household items' : 'Other possible foods'}
+                </Text>
+                {(result.item_type === 'household'
+                  ? result.additional_household_matches
+                  : result.additional_food_matches).map((match) => (
                   <Text key={match.label} style={styles.small}>
                       {match.label}: {Number(match.confidence).toFixed(1)}% match score
                   </Text>

@@ -13,23 +13,39 @@
     input[type="file"] { box-sizing: border-box; width: 100%; padding: 10px; }
     button { margin: 8px 8px 0 0; padding: 10px 16px; border: 0; border-radius: 6px; background: #2f6f4f; color: white; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
-    #preview { display: none; max-width: 100%; max-height: 320px; margin-top: 12px; border-radius: 8px; }
-    #status, #result { white-space: pre-wrap; overflow-wrap: anywhere; }
+    #preview, #video { display: none; max-width: 100%; max-height: 320px; margin-top: 12px; border-radius: 8px; }
+    #connectionStatus, #result { white-space: pre-wrap; overflow-wrap: anywhere; }
     .muted { color: #555; font-size: .92rem; }
     li { margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
   </style>
 </head>
 <body>
   <h1>🥫 ShipScan</h1>
-  <p>Scan a grocery photo to identify the food.</p>
+  <p>Scan food or common household items. The scanner tries to reject animals and unrelated subjects, but recognition can make mistakes.</p>
 
   <section class="card">
-    <label for="imageInput">Food photo</label>
-    <input id="imageInput" type="file" accept="image/*">
+    <label for="imageInput">Food or household item photo</label>
+    <input id="imageInput" type="file" accept="image/*" capture="environment">
     <img id="preview" alt="Selected food photo">
-    <button id="scanButton" type="button">Scan food</button>
+    <video id="video" autoplay playsinline></video>
+    <button id="startCameraButton" type="button">Use webcam</button>
+    <button id="captureButton" type="button" hidden>Capture photo</button>
+    <button id="stopCameraButton" type="button" hidden>Stop camera</button>
+    <button id="scanButton" type="button">Scan item</button>
     <p id="connectionStatus" class="muted" role="status">Connecting to scanner...</p>
     <div id="result" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>Scan log</h2>
+    <button id="clearLogButton" type="button">Clear log</button>
+    <p id="logStatus" class="muted" role="status"></p>
+    <table>
+      <thead><tr><th>Item</th><th>Type</th><th>Match</th><th>Time</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table>
   </section>
 
   <script>
@@ -39,13 +55,115 @@
     const connectionStatus = document.getElementById("connectionStatus");
     const result = document.getElementById("result");
     const scanButton = document.getElementById("scanButton");
+    const video = document.getElementById("video");
+    const startCameraButton = document.getElementById("startCameraButton");
+    const captureButton = document.getElementById("captureButton");
+    const stopCameraButton = document.getElementById("stopCameraButton");
+    const logBody = document.getElementById("logBody");
+    const logStatus = document.getElementById("logStatus");
     let scannerReady = false;
+    let cameraStream = null;
+    let capturedPhoto = null;
+    let pantryLog = [];
 
     imageInput.addEventListener("change", () => {
       const file = imageInput.files[0];
+      capturedPhoto = file || null;
       preview.src = file ? URL.createObjectURL(file) : "";
       preview.style.display = file ? "block" : "none";
     });
+
+    startCameraButton.addEventListener("click", async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Camera access requires HTTPS or localhost.");
+        }
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
+        video.srcObject = cameraStream;
+        video.style.display = "block";
+        captureButton.hidden = false;
+        stopCameraButton.hidden = false;
+        startCameraButton.hidden = true;
+      } catch {
+        connectionStatus.textContent = "Could not open the camera. Check browser permissions and try again.";
+      }
+    });
+
+    function stopCamera() {
+      cameraStream?.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+      video.srcObject = null;
+      video.style.display = "none";
+      captureButton.hidden = true;
+      stopCameraButton.hidden = true;
+      startCameraButton.hidden = false;
+    }
+
+    captureButton.addEventListener("click", () => {
+      if (!video.videoWidth || !video.videoHeight) {
+        connectionStatus.textContent = "Camera is not ready yet. Please wait and try again.";
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          connectionStatus.textContent = "Could not capture the photo. Please try again.";
+          return;
+        }
+        capturedPhoto = blob;
+        preview.src = URL.createObjectURL(blob);
+        preview.style.display = "block";
+      }, "image/jpeg");
+    });
+    stopCameraButton.addEventListener("click", stopCamera);
+    window.addEventListener("pagehide", stopCamera);
+
+    function refreshLog() {
+      logBody.replaceChildren();
+      for (const entry of pantryLog) {
+        const row = document.createElement("tr");
+        for (const value of [
+          entry.item,
+          entry.item_type === "household" ? "Household" : "Food",
+          `${Number(entry.confidence).toFixed(1)}%`,
+          entry.time,
+        ]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        logBody.appendChild(row);
+      }
+      if (!logStatus.textContent.startsWith("Could not")) {
+        logStatus.textContent = pantryLog.length ? "" : "No scanned items yet.";
+      }
+    }
+
+    document.getElementById("clearLogButton").addEventListener("click", () => {
+      try {
+        localStorage.removeItem("shipscan-log");
+        pantryLog = [];
+        refreshLog();
+        logStatus.textContent = "Scan log cleared.";
+      } catch {
+        logStatus.textContent = "Could not clear the scan log. Please try again.";
+      }
+    });
+
+    try {
+      const savedLog = localStorage.getItem("shipscan-log");
+      pantryLog = savedLog ? JSON.parse(savedLog) : [];
+      if (!Array.isArray(pantryLog)) throw new Error("Invalid saved scan log.");
+    } catch {
+      pantryLog = [];
+      logStatus.textContent = "Could not load the scan log from this browser.";
+    }
+    refreshLog();
 
     async function connectToScanner() {
       connectionStatus.textContent = "Connecting to scanner...";
@@ -64,13 +182,12 @@
     }
 
     scanButton.addEventListener("click", async () => {
-      const file = imageInput.files[0];
-      if (!file) {
-        result.textContent = "Choose a food photo first.";
+      if (!capturedPhoto) {
+        result.textContent = "Choose or capture a photo first.";
         return;
       }
       const form = new FormData();
-      form.append("image", file, file.name);
+      form.append("image", capturedPhoto, capturedPhoto.name || "capture.jpg");
       form.append("log", "0");
       scanButton.disabled = true;
       result.textContent = "Predicting...";
@@ -82,18 +199,28 @@
         const response = await fetch(`${predictionServer}/predict`, { method: "POST", body: form });
         const prediction = await response.json();
         if (!response.ok) throw new Error("Prediction failed. Please try again.");
+        if (prediction.is_valid === false) {
+          result.textContent = prediction.label;
+          return;
+        }
         result.replaceChildren();
         const heading = document.createElement("h2");
         heading.textContent = prediction.label;
+        const type = document.createElement("p");
+        type.textContent = prediction.item_type === "household" ? "Household item" : "Food";
         const score = document.createElement("p");
         score.textContent = `${Number(prediction.confidence).toFixed(1)}% ${
           prediction.recognition_source === "general" ? "match score" : "confidence"
         }`;
-        result.append(heading, score);
-        const others = prediction.additional_food_matches || [];
+        result.append(heading, type, score);
+        const others = prediction.item_type === "household"
+          ? prediction.additional_household_matches || []
+          : prediction.additional_food_matches || [];
         if (others.length) {
           const title = document.createElement("h3");
-          title.textContent = "Other possible foods";
+          title.textContent = prediction.item_type === "household"
+            ? "Other possible household items"
+            : "Other possible foods";
           const list = document.createElement("ul");
           for (const match of others) {
             const item = document.createElement("li");
@@ -101,6 +228,19 @@
             list.appendChild(item);
           }
           result.append(title, list);
+        }
+        pantryLog.unshift({
+          item: prediction.label,
+          item_type: prediction.item_type,
+          confidence: prediction.confidence,
+          time: new Date().toLocaleString(),
+        });
+        refreshLog();
+        try {
+          localStorage.setItem("shipscan-log", JSON.stringify(pantryLog));
+          logStatus.textContent = "";
+        } catch {
+          logStatus.textContent = "Scan shown, but could not save the log in this browser.";
         }
       } catch {
         scannerReady = false;

@@ -18,11 +18,13 @@ SmartPantry_Complete/
 └── requirements.txt
 ```
 
-The app combines your trained classes with a general image/text food recognizer
-that can match a broad list of groceries, including red onions and carrots. For
-best results on these items, add photos to `dataset/red_onion/` and
-`dataset/carrot/`, then rerun the split and training steps. The general model's
-first run downloads its pretrained weights.
+The app combines your trained classes with a general image/text recognizer for
+food and common household items. It tries to reject images it identifies as
+unrelated, including animals, but image recognition is not perfect. The web app
+supports photo uploads and webcam capture; its scan log is stored in that
+browser and can be cleared from the page. For best grocery results, add photos
+to `dataset/red_onion/` and `dataset/carrot/`, then rerun the split and training
+steps. The general model's first run downloads its pretrained weights.
 
 ## Step 0 - Install (once)
 Python 3.10 or 3.11, then in a terminal in this folder:
@@ -80,9 +82,10 @@ images to the server.
    cloudflared tunnel --url http://127.0.0.1:5001
    ```
    Copy the temporary `https://...trycloudflare.com` URL it prints.
-5. Open the GitHub Pages link and test the prefilled server URL. If you restart
-   the tunnel, replace the saved server URL with the new one; visitors' browsers
-   may need to clear their saved value too.
+5. Open the GitHub Pages link. It connects automatically, supports webcam or
+   phone-camera capture, and shows a per-browser scan log with a **Clear log**
+   button. If you restart the temporary tunnel, update its address in
+   `docs/index.html` and publish the change.
 
 Quick Tunnels are for testing, have no uptime guarantee, and stop working when
 `cloudflared` exits. They do not make the prediction service permanently hosted.

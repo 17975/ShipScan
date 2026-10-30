@@ -9,8 +9,8 @@ Flask web application for ShipScan:
 MODEL LOADING BEHAVIOUR (automatic):
  - If model/food_classifier.h5 exists (i.e. you have run train_model.py on your
    own collected dataset), the app uses YOUR custom-trained model.
- - A pretrained image/text model also recognizes common groceries outside the
-   custom model's classes.
+ - A pretrained image/text model recognizes common foods and household items,
+   and rejects images that look unrelated.
 
 IMPORTANT (read this before submitting your assignment):
    The custom model is trained on your own collected dataset. For best accuracy
@@ -72,8 +72,27 @@ FOOD_LABELS = (
     "salt", "honey", "tea", "coffee", "chocolate", "cake", "cookie", "donut",
     "ice cream", "canned food", "food package",
 )
-MIN_GENERAL_FOOD_SCORE = 0.20
+HOUSEHOLD_LABELS = (
+    "bottle", "cup", "mug", "glass", "plate", "bowl", "fork", "spoon",
+    "kitchen knife", "cooking pot", "frying pan", "kettle", "toaster",
+    "microwave oven", "refrigerator", "blender", "coffee maker", "dish soap",
+    "cleaning spray", "laundry detergent", "sponge", "broom", "mop",
+    "vacuum cleaner", "trash can", "chair", "table", "sofa", "bed", "lamp",
+    "book", "phone", "laptop", "television", "remote control", "clothing",
+    "shoe", "towel", "toothbrush", "shampoo bottle", "medicine bottle",
+    "cardboard box", "basket", "keys", "scissors", "hand tool", "flower pot",
+    "house plant",
+)
+NON_HOUSEHOLD_LABELS = (
+    "dog", "cat", "horse", "bird", "cow", "sheep", "rabbit", "squirrel",
+    "wild animal", "person", "car", "truck", "bicycle", "motorcycle", "airplane",
+    "boat", "street scene", "mountain landscape", "ocean scene", "sports field",
+    "toy", "video game", "computer screenshot", "document", "painting",
+)
+MIN_GENERAL_TARGET_SCORE = 0.20
 MIN_GENERAL_FOOD_MARGIN = 0.015
+MIN_GENERAL_HOUSEHOLD_MARGIN = 0.005
+MIN_GENERAL_NON_TARGET_MARGIN = 0.005
 
 USING_CUSTOM_MODEL = os.path.exists(MODEL_PATH) and os.path.exists(CLASS_NAMES_PATH)
 
@@ -83,7 +102,7 @@ if USING_CUSTOM_MODEL:
     with open(CLASS_NAMES_PATH) as f:
         class_names = json.load(f)
 else:
-    print("[ShipScan] No custom model found yet - using general food recognition "
+    print("[ShipScan] No custom model found yet - using general food and household recognition "
           "only. Train your own model with "
           "train_model.py to add your collected classes.")
     custom_model = None
@@ -130,6 +149,16 @@ with torch.no_grad():
     food_text = general_tokenizer(food_prompts)
     food_text_features = general_model.encode_text(food_text)
     food_text_features /= food_text_features.norm(dim=-1, keepdim=True)
+    household_text = general_tokenizer(
+        tuple(f"a photo of {label}" for label in HOUSEHOLD_LABELS)
+    )
+    household_text_features = general_model.encode_text(household_text)
+    household_text_features /= household_text_features.norm(dim=-1, keepdim=True)
+    non_household_text = general_tokenizer(
+        tuple(f"a photo of {label}" for label in NON_HOUSEHOLD_LABELS)
+    )
+    non_household_text_features = general_model.encode_text(non_household_text)
+    non_household_text_features /= non_household_text_features.norm(dim=-1, keepdim=True)
 
 # Simple in-memory pantry log: [{"item": str, "confidence": float, "time": str}]
 pantry_log = []
@@ -158,7 +187,7 @@ def predict_with_custom_model(img_array):
     return label, confidence, all_confidences
 
 
-def predict_with_general_food_model(file_storage):
+def predict_with_general_item_model(file_storage):
     image = ImageOps.exif_transpose(
         Image.open(io.BytesIO(file_storage))
     ).convert("RGB")
@@ -166,18 +195,25 @@ def predict_with_general_food_model(file_storage):
     with torch.no_grad():
         image_features = general_model.encode_image(image_tensor)
         image_features /= image_features.norm(dim=-1, keepdim=True)
-        similarities = (100.0 * image_features @ food_text_features.T).softmax(dim=-1)[0]
 
-    top_indices = torch.topk(similarities, k=5).indices.tolist()
-    matches = [
-        {
-            "label": food_labels[index],
-            "confidence": round(float(similarities[index]) * 100, 2),
-            "similarity": float(image_features @ food_text_features[index]),
+        def rank_candidates(labels, text_features):
+            scores = (100.0 * image_features @ text_features.T)[0]
+            probabilities = scores.softmax(dim=-1)
+            top_indices = torch.topk(scores, k=min(5, len(labels))).indices.tolist()
+            return [
+                {
+                    "label": labels[index],
+                    "confidence": round(float(probabilities[index]) * 100, 2),
+                    "similarity": float(scores[index] / 100.0),
+                }
+                for index in top_indices
+            ]
+
+        return {
+            "food": rank_candidates(food_labels, food_text_features),
+            "household": rank_candidates(HOUSEHOLD_LABELS, household_text_features),
+            "other": rank_candidates(NON_HOUSEHOLD_LABELS, non_household_text_features),
         }
-        for index in top_indices
-    ]
-    return matches
 
 
 @app.route("/")
@@ -201,21 +237,81 @@ def predict():
     try:
         image_bytes = file.read()
         img_array = prepare_image(io.BytesIO(image_bytes))
-        general_food_matches = predict_with_general_food_model(image_bytes)
+        candidate_groups = predict_with_general_item_model(image_bytes)
+        general_food_matches = candidate_groups["food"]
+        household_matches = candidate_groups["household"]
+        other_matches = candidate_groups["other"]
+        food_candidate = general_food_matches[0]
+        household_candidate = household_matches[0]
+        other_candidate = other_matches[0]
 
-        if USING_CUSTOM_MODEL:
+        def is_confident(matches, margin):
+            return (
+                matches[0]["similarity"] >= MIN_GENERAL_TARGET_SCORE
+                and matches[0]["similarity"] - matches[1]["similarity"]
+                >= margin
+            )
+
+        food_is_confident = is_confident(
+            general_food_matches, MIN_GENERAL_FOOD_MARGIN
+        )
+        household_is_confident = is_confident(
+            household_matches, MIN_GENERAL_HOUSEHOLD_MARGIN
+        )
+        best_target_similarity = max(
+            food_candidate["similarity"] if food_is_confident else 0,
+            household_candidate["similarity"] if household_is_confident else 0,
+        )
+        if (
+            other_candidate["similarity"] >= MIN_GENERAL_TARGET_SCORE
+            and other_candidate["similarity"]
+            >= best_target_similarity + MIN_GENERAL_NON_TARGET_MARGIN
+        ) or best_target_similarity == 0:
+            return jsonify({
+                "label": "This is not a household item or food.",
+                "item_type": "unsupported",
+                "is_valid": False,
+                "confidence": 0,
+                "all_confidences": {},
+                "additional_food_matches": [],
+                "additional_household_matches": [],
+                "using_custom_model": USING_CUSTOM_MODEL,
+                "recognition_source": "general",
+            })
+
+        item_type = (
+            "household"
+            if household_is_confident
+            and (
+                not food_is_confident
+                or household_candidate["similarity"] > food_candidate["similarity"]
+            )
+            else "food"
+        )
+
+        if item_type == "household":
+            label = household_candidate["label"]
+            confidence = household_candidate["confidence"] / 100
+            recognition_source = "general"
+            all_confidences = {
+                match["label"]: match["confidence"]
+                for match in household_matches
+            }
+            additional_food_matches = []
+            additional_household_matches = household_matches[1:]
+        elif USING_CUSTOM_MODEL:
             label, confidence, all_confidences = predict_with_custom_model(img_array)
             recognition_source = "custom"
-            general_candidate = general_food_matches[0]
-            custom_candidate_is_known = general_candidate["label"] in class_names
-            general_candidate_is_confident = (
-                general_candidate["similarity"] >= MIN_GENERAL_FOOD_SCORE
-                and general_candidate["similarity"]
-                - general_food_matches[1]["similarity"] >= MIN_GENERAL_FOOD_MARGIN
+            normalized_class_names = {
+                name.replace("_", " ").lower() for name in class_names
+            }
+            custom_candidate_is_known = (
+                food_candidate["label"] in normalized_class_names
             )
+            general_candidate_is_confident = food_is_confident
             if not custom_candidate_is_known and general_candidate_is_confident:
-                label = general_candidate["label"]
-                confidence = general_candidate["confidence"] / 100
+                label = food_candidate["label"]
+                confidence = food_candidate["confidence"] / 100
                 recognition_source = "general"
 
             additional_food_matches = [
@@ -223,20 +319,22 @@ def predict():
                 for match in general_food_matches
                 if match["label"] != label
             ]
+            additional_household_matches = []
         else:
-            general_candidate = general_food_matches[0]
-            label = general_candidate["label"]
-            confidence = general_candidate["confidence"] / 100
+            label = food_candidate["label"]
+            confidence = food_candidate["confidence"] / 100
             recognition_source = "general"
             all_confidences = {
                 match["label"]: match["confidence"]
                 for match in general_food_matches
             }
             additional_food_matches = general_food_matches[1:]
+            additional_household_matches = []
 
         # Log the recognized item
         entry = {
             "item": label,
+            "item_type": item_type,
             "confidence": round(confidence * 100, 2),
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -250,10 +348,13 @@ def predict():
 
         return jsonify({
             "label": label,
+            "item_type": item_type,
+            "is_valid": True,
             "confidence": entry["confidence"],
             "logged_count": count_recent,
             "all_confidences": all_confidences,
             "additional_food_matches": additional_food_matches,
+            "additional_household_matches": additional_household_matches,
             "using_custom_model": USING_CUSTOM_MODEL,
             "recognition_source": recognition_source,
         })
@@ -275,7 +376,7 @@ def clear_log():
 
 @app.route("/health")
 def health():
-    """Used by the phone app's 'Test connection' button."""
+    """Report whether the prediction model is available."""
     return jsonify({
         "status": "ok",
         "using_custom_model": USING_CUSTOM_MODEL,
