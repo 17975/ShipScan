@@ -88,8 +88,7 @@ NON_FOOD_LABELS = (
     "toy", "video game", "computer screenshot", "document", "painting",
 )
 MIN_GENERAL_TARGET_SCORE = 0.20
-MIN_GENERAL_FOOD_MARGIN = 0.015
-MIN_GENERAL_NON_TARGET_MARGIN = 0.005
+MIN_GENERAL_NON_FOOD_MARGIN = 0.015
 
 USING_CUSTOM_MODEL = os.path.exists(MODEL_PATH) and os.path.exists(CLASS_NAMES_PATH)
 
@@ -234,21 +233,12 @@ def predict():
         food_candidate = general_food_matches[0]
         non_food_candidate = non_food_matches[0]
 
-        def is_confident(matches, margin):
-            return (
-                matches[0]["similarity"] >= MIN_GENERAL_TARGET_SCORE
-                and matches[0]["similarity"] - matches[1]["similarity"]
-                >= margin
-            )
-
-        food_is_confident = is_confident(
-            general_food_matches, MIN_GENERAL_FOOD_MARGIN
+        food_is_confident = (
+            food_candidate["similarity"] >= MIN_GENERAL_TARGET_SCORE
+            and food_candidate["similarity"] + MIN_GENERAL_NON_FOOD_MARGIN
+            > non_food_candidate["similarity"]
         )
-        if (
-            non_food_candidate["similarity"] >= MIN_GENERAL_TARGET_SCORE
-            and non_food_candidate["similarity"]
-            >= food_candidate["similarity"] + MIN_GENERAL_NON_TARGET_MARGIN
-        ) or not food_is_confident:
+        if not food_is_confident:
             return jsonify({
                 "label": "This is not a food item.",
                 "item_type": "unsupported",
