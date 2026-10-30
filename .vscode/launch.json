@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run ShipScan in VS Code",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}\\app.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}\\.venv311\\Scripts\\python.exe",
+            "env": {
+                "PORT": "5003"
+            }
+        }
+    ]
+}

@@ -4,4 +4,3 @@ __pycache__/
 *.py[cod]
 dataset/
 dataset_split/
-.vscode/

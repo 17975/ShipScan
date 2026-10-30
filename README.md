@@ -25,7 +25,10 @@ recognition is not perfect. The web app
 supports photo uploads and webcam capture; its scan log is stored in that
 browser and can be cleared from the page. For best grocery results, add photos
 to `dataset/red_onion/` and `dataset/carrot/`, then rerun the split and training
-steps. The general model's first run downloads its pretrained weights.
+steps. Recognition compares the strongest food match with the strongest
+non-food match, so a packaged food is not rejected just because several food
+labels are similar. The general model's first run downloads its pretrained
+weights.
 
 ## Step 0 - Install (once)
 Python 3.10 or 3.11, then in a terminal in this folder:
@@ -54,6 +57,11 @@ python app.py
 ```
 It prints the address to use on your phone. (You can also open
 http://127.0.0.1:5000 on the computer. Green banner = your own model.)
+
+In VS Code, choose **Run ShipScan in VS Code** in **Run and Debug** and press
+F5. The server runs in VS Code's integrated terminal without opening Chrome.
+To view the page inside VS Code, run **Simple Browser: Show** from the Command
+Palette and open `http://127.0.0.1:5003`.
 
 ## Step 4 - Use your phone with Expo Go
 Follow `expo_app/README.md`.
