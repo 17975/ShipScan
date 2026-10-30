@@ -1,0 +1,5 @@
+Final training accuracy: 0.9828
+Final validation accuracy: 0.9787
+Test accuracy: 1.0000
+Test loss: 0.0262
+Classes: ['apple', 'banana', 'bread', 'canned_food', 'egg', 'milk_carton', 'packaged_snack', 'tomato']
