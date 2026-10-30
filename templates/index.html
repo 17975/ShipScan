@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ShipScan - Food Scanner</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 700px;
+        margin: 40px auto;
+        background: #f7f7f5;
+        color: #222;
+    }
+    h1 { color: #2f6f4f; }
+    .card {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    #video, #canvas, #preview {
+        width: 100%;
+        max-width: 400px;
+        border-radius: 8px;
+        display: block;
+        margin: 10px auto;
+    }
+    button {
+        background: #2f6f4f;
+        color: white;
+        border: none;
+        padding: 10px 18px;
+        border-radius: 6px;
+        cursor: pointer;
+        margin: 5px 5px 5px 0;
+        font-size: 14px;
+    }
+    button:hover { background: #24593f; }
+    #result {
+        font-size: 18px;
+        margin-top: 10px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    th, td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #ddd;
+    }
+    .confidence-bar {
+        background: #eee;
+        border-radius: 4px;
+        overflow: hidden;
+        height: 10px;
+        margin-top: 4px;
+    }
+    .confidence-fill {
+        background: #2f6f4f;
+        height: 100%;
+    }
+</style>
+</head>
+<body>
+
+<h1>🥫 ShipScan</h1>
+<p>Upload or capture a photo of a food item to classify it and log it to your pantry.</p>
+
+{% if using_custom_model %}
+<div style="background:#e6f4ea;border:1px solid #2f6f4f;color:#1e4d33;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:14px;">
+    ✅ Using your <strong>custom trained model</strong> plus general food recognition
+    for produce and other groceries, including carrots and onions.
+</div>
+{% else %}
+<div style="background:#fff4e5;border:1px solid #c98a1f;color:#7a5310;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:14px;">
+    ⚠️ No custom trained model found yet — running on a general pretrained model.
+    Run <code>split_dataset.py</code> then <code>train_model.py</code> on your own collected dataset,
+    then restart this app to add your trained classes to general food recognition.
+</div>
+{% endif %}
+
+<div class="card">
+    <h3>Option 1: Upload an Image</h3>
+    <input type="file" id="fileInput" accept="image/*">
+    <img id="preview" style="display:none;">
+</div>
+
+<div class="card">
+    <h3>Option 2: Use Webcam</h3>
+    <video id="video" autoplay></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <button id="startCam">Start Camera</button>
+    <button id="captureBtn" style="display:none;">Capture Photo</button>
+</div>
+
+<div class="card">
+    <button id="predictBtn">Classify Item</button>
+    <div id="result"></div>
+    <div id="confidenceList"></div>
+    <div id="additionalPredictions"></div>
+</div>
+
+<div class="card">
+    <h3>Pantry Log</h3>
+    <button id="refreshLogBtn">Refresh Log</button>
+    <button id="clearLogBtn">Clear Log</button>
+    <table id="logTable">
+        <thead>
+            <tr><th>Item</th><th>Confidence</th><th>Time</th></tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+    </table>
+</div>
+
+<script>
+let capturedBlob = null;
+
+const fileInput = document.getElementById("fileInput");
+const preview = document.getElementById("preview");
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const startCamBtn = document.getElementById("startCam");
+const captureBtn = document.getElementById("captureBtn");
+const predictBtn = document.getElementById("predictBtn");
+const resultDiv = document.getElementById("result");
+const confidenceList = document.getElementById("confidenceList");
+const additionalPredictions = document.getElementById("additionalPredictions");
+const logBody = document.getElementById("logBody");
+
+fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (file) {
+        capturedBlob = file;
+        preview.src = URL.createObjectURL(file);
+        preview.style.display = "block";
+    }
+});
+
+startCamBtn.addEventListener("click", async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        video.style.display = "block";
+        captureBtn.style.display = "inline-block";
+    } catch (err) {
+        alert("Could not access camera: " + err.message);
+    }
+});
+
+captureBtn.addEventListener("click", () => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob((blob) => {
+        capturedBlob = blob;
+        preview.src = URL.createObjectURL(blob);
+        preview.style.display = "block";
+    }, "image/jpeg");
+});
+
+predictBtn.addEventListener("click", async () => {
+    if (!capturedBlob) {
+        alert("Please upload or capture an image first.");
+        return;
+    }
+    const formData = new FormData();
+    formData.append("image", capturedBlob, "capture.jpg");
+
+    resultDiv.textContent = "Classifying...";
+    confidenceList.innerHTML = "";
+    additionalPredictions.innerHTML = "";
+
+    try {
+        const res = await fetch("/predict", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (data.error) {
+            resultDiv.textContent = "Error: " + data.error;
+            return;
+        }
+
+        const source = data.recognition_source === "general"
+            ? "general food model"
+            : "your trained model";
+        const scoreLabel = data.recognition_source === "general"
+            ? "match score"
+            : "confidence";
+        resultDiv.innerHTML = `Prediction: <strong>${data.label}</strong> (${data.confidence}% ${scoreLabel}, ${source})`;
+
+        const confidenceHeading = data.recognition_source === "general"
+            ? "General food candidates:"
+            : "Your trained model's class confidences:";
+        confidenceList.innerHTML = `<h4>${confidenceHeading}</h4>`;
+        for (const [cls, conf] of Object.entries(data.all_confidences)) {
+            confidenceList.innerHTML += `
+                <div>${cls}: ${conf}%
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width:${conf}%;"></div>
+                    </div>
+                </div>`;
+        }
+
+        if (data.additional_food_matches && data.additional_food_matches.length) {
+            additionalPredictions.innerHTML = "<h4>Other possible foods (general model match scores):</h4>";
+            for (const match of data.additional_food_matches) {
+                const candidate = document.createElement("div");
+                candidate.textContent = `${match.label}: ${match.confidence}%`;
+                additionalPredictions.appendChild(candidate);
+            }
+        }
+
+        refreshLog();
+    } catch (err) {
+        resultDiv.textContent = "Request failed: " + err.message;
+    }
+});
+
+async function refreshLog() {
+    const res = await fetch("/pantry_log");
+    const data = await res.json();
+    logBody.innerHTML = "";
+    data.slice().reverse().forEach(entry => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${entry.item}</td><td>${entry.confidence}%</td><td>${entry.time}</td>`;
+        logBody.appendChild(row);
+    });
+}
+
+document.getElementById("refreshLogBtn").addEventListener("click", refreshLog);
+document.getElementById("clearLogBtn").addEventListener("click", async () => {
+    await fetch("/clear_log", { method: "POST" });
+    refreshLog();
+});
+
+// Load log on page load
+refreshLog();
+</script>
+
+</body>
+</html>
