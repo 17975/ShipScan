@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShipScan - Food Scanner</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; color: #222; }
+    body { max-width: 720px; margin: 32px auto; padding: 0 16px; background: #f7f7f5; }
+    h1 { color: #2f6f4f; }
+    .card { margin: 16px 0; padding: 20px; border-radius: 10px; background: white; box-shadow: 0 1px 4px #0002; }
+    label { display: block; margin: 12px 0 6px; font-weight: 600; }
+    input[type="url"], input[type="file"] { box-sizing: border-box; width: 100%; padding: 10px; }
+    button { margin: 8px 8px 0 0; padding: 10px 16px; border: 0; border-radius: 6px; background: #2f6f4f; color: white; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #preview { display: none; max-width: 100%; max-height: 320px; margin-top: 12px; border-radius: 8px; }
+    #status, #result { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .muted { color: #555; font-size: .92rem; }
+    .warning { padding: 12px; border: 1px solid #c98a1f; border-radius: 6px; background: #fff4e5; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>🥫 ShipScan</h1>
+  <p>Scan a grocery photo with ShipScan's food prediction server.</p>
+  <p class="warning">This public page needs the temporary prediction-server URL from the owner.
+    The computer running the model must stay on. Anyone who knows that URL can submit images.</p>
+
+  <section class="card">
+    <label for="serverUrl">Prediction server URL</label>
+    <input id="serverUrl" type="url" placeholder="https://your-temporary-name.trycloudflare.com"
+      autocomplete="url">
+    <button id="connectButton" type="button">Test connection</button>
+    <p id="status" class="muted" role="status"></p>
+  </section>
+
+  <section class="card">
+    <label for="imageInput">Food photo</label>
+    <input id="imageInput" type="file" accept="image/*">
+    <img id="preview" alt="Selected food photo">
+    <button id="scanButton" type="button">Predict food</button>
+    <div id="result" aria-live="polite"></div>
+  </section>
+
+  <script>
+    const serverInput = document.getElementById("serverUrl");
+    const imageInput = document.getElementById("imageInput");
+    const preview = document.getElementById("preview");
+    const status = document.getElementById("status");
+    const result = document.getElementById("result");
+    const connectButton = document.getElementById("connectButton");
+    const scanButton = document.getElementById("scanButton");
+
+    serverInput.value = localStorage.getItem("shipscan-server-url") || "";
+    serverInput.addEventListener("change", () => {
+      localStorage.setItem("shipscan-server-url", serverInput.value.trim().replace(/\/+$/, ""));
+    });
+
+    imageInput.addEventListener("change", () => {
+      const file = imageInput.files[0];
+      preview.src = file ? URL.createObjectURL(file) : "";
+      preview.style.display = file ? "block" : "none";
+    });
+
+    function serverBase() {
+      return serverInput.value.trim().replace(/\/+$/, "");
+    }
+
+    connectButton.addEventListener("click", async () => {
+      if (!serverBase()) {
+        status.textContent = "Enter the prediction-server URL first.";
+        return;
+      }
+      connectButton.disabled = true;
+      status.textContent = "Connecting...";
+      try {
+        const response = await fetch(`${serverBase()}/health`);
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+        const health = await response.json();
+        status.textContent = health.status === "ok"
+          ? "Connected. Food recognition is ready."
+          : "Server responded, but recognition is not ready.";
+      } catch (error) {
+        status.textContent = `Could not connect: ${error.message}`;
+      } finally {
+        connectButton.disabled = false;
+      }
+    });
+
+    scanButton.addEventListener("click", async () => {
+      const file = imageInput.files[0];
+      if (!serverBase() || !file) {
+        result.textContent = "Enter the server URL and choose a food photo.";
+        return;
+      }
+      const form = new FormData();
+      form.append("image", file, file.name);
+      form.append("log", "0");
+      scanButton.disabled = true;
+      result.textContent = "Predicting...";
+      try {
+        const response = await fetch(`${serverBase()}/predict`, { method: "POST", body: form });
+        const prediction = await response.json();
+        if (!response.ok) throw new Error(prediction.error || `Server returned ${response.status}`);
+        result.replaceChildren();
+        const heading = document.createElement("h2");
+        heading.textContent = prediction.label;
+        const score = document.createElement("p");
+        score.textContent = `${Number(prediction.confidence).toFixed(1)}% ${
+          prediction.recognition_source === "general" ? "match score" : "confidence"
+        }`;
+        result.append(heading, score);
+        const others = prediction.additional_food_matches || [];
+        if (others.length) {
+          const title = document.createElement("h3");
+          title.textContent = "Other possible foods";
+          const list = document.createElement("ul");
+          for (const match of others) {
+            const item = document.createElement("li");
+            item.textContent = `${match.label}: ${Number(match.confidence).toFixed(1)}% match score`;
+            list.appendChild(item);
+          }
+          result.append(title, list);
+        }
+      } catch (error) {
+        result.textContent = `Prediction failed: ${error.message}`;
+      } finally {
+        scanButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
