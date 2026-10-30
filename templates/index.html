@@ -66,7 +66,7 @@
 <body>
 
 <h1>🥫 ShipScan</h1>
-<p>Upload or capture a food or household item. Animals and unrelated subjects are rejected.</p>
+<p>Upload or capture a food photo. Household objects, animals, and unrelated images should be rejected.</p>
 
 {% if using_custom_model %}
 <div style="background:#e6f4ea;border:1px solid #2f6f4f;color:#1e4d33;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:14px;">
@@ -82,7 +82,7 @@
 {% endif %}
 
 <div class="card">
-    <h3>Option 1: Upload or take a photo</h3>
+    <h3>Option 1: Upload a food photo</h3>
     <input type="file" id="fileInput" accept="image/*" capture="environment">
     <img id="preview" style="display:none;">
 </div>
@@ -97,19 +97,19 @@
 </div>
 
 <div class="card">
-    <button id="predictBtn">Classify Item</button>
+    <button id="predictBtn">Classify Food</button>
     <div id="result"></div>
     <div id="confidenceList"></div>
     <div id="additionalPredictions"></div>
 </div>
 
 <div class="card">
-    <h3>Pantry Log</h3>
+    <h3>Food Log</h3>
     <button id="refreshLogBtn">Refresh Log</button>
     <button id="clearLogBtn">Clear Log</button>
     <table id="logTable">
         <thead>
-            <tr><th>Item</th><th>Type</th><th>Confidence</th><th>Time</th></tr>
+            <tr><th>Food</th><th>Confidence</th><th>Time</th></tr>
         </thead>
         <tbody id="logBody"></tbody>
     </table>
@@ -209,13 +209,13 @@ predictBtn.addEventListener("click", async () => {
             return;
         }
         if (data.is_valid === false) {
-            resultDiv.textContent = data.label;
+            resultDiv.textContent = "This is not a food item.";
             refreshLog();
             return;
         }
 
         const source = data.recognition_source === "general"
-            ? `general ${data.item_type} model`
+            ? "general food model"
             : "your trained model";
         const scoreLabel = data.recognition_source === "general"
             ? "match score"
@@ -223,7 +223,7 @@ predictBtn.addEventListener("click", async () => {
         resultDiv.innerHTML = `Prediction: <strong>${data.label}</strong> (${data.confidence}% ${scoreLabel}, ${source})`;
 
         const confidenceHeading = data.recognition_source === "general"
-            ? `General ${data.item_type} candidates:`
+            ? "General food candidates:"
             : "Your trained model's class confidences:";
         confidenceList.innerHTML = `<h4>${confidenceHeading}</h4>`;
         for (const [cls, conf] of Object.entries(data.all_confidences)) {
@@ -235,13 +235,9 @@ predictBtn.addEventListener("click", async () => {
                 </div>`;
         }
 
-        const otherMatches = data.item_type === "household"
-            ? data.additional_household_matches
-            : data.additional_food_matches;
+        const otherMatches = data.additional_food_matches;
         if (otherMatches && otherMatches.length) {
-            additionalPredictions.innerHTML = data.item_type === "household"
-                ? "<h4>Other possible household items:</h4>"
-                : "<h4>Other possible foods (general model match scores):</h4>";
+            additionalPredictions.innerHTML = "<h4>Other possible foods (general model match scores):</h4>";
             for (const match of otherMatches) {
                 const candidate = document.createElement("div");
                 candidate.textContent = `${match.label}: ${match.confidence}%`;
@@ -261,7 +257,7 @@ async function refreshLog() {
     logBody.innerHTML = "";
     data.slice().reverse().forEach(entry => {
         const row = document.createElement("tr");
-        row.innerHTML = `<td>${entry.item}</td><td>${entry.item_type === "household" ? "Household" : "Food"}</td><td>${entry.confidence}%</td><td>${entry.time}</td>`;
+        row.innerHTML = `<td>${entry.item}</td><td>${entry.confidence}%</td><td>${entry.time}</td>`;
         logBody.appendChild(row);
     });
 }

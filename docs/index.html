@@ -23,27 +23,27 @@
 </head>
 <body>
   <h1>🥫 ShipScan</h1>
-  <p>Scan food or common household items. The scanner tries to reject animals and unrelated subjects, but recognition can make mistakes.</p>
+  <p>Scan food items. Household objects, animals, and unrelated images should be rejected, though recognition can make mistakes.</p>
 
   <section class="card">
-    <label for="imageInput">Food or household item photo</label>
+    <label for="imageInput">Food photo</label>
     <input id="imageInput" type="file" accept="image/*" capture="environment">
     <img id="preview" alt="Selected food photo">
     <video id="video" autoplay playsinline></video>
     <button id="startCameraButton" type="button">Use webcam</button>
     <button id="captureButton" type="button" hidden>Capture photo</button>
     <button id="stopCameraButton" type="button" hidden>Stop camera</button>
-    <button id="scanButton" type="button">Scan item</button>
+    <button id="scanButton" type="button">Scan food</button>
     <p id="connectionStatus" class="muted" role="status">Connecting to scanner...</p>
     <div id="result" aria-live="polite"></div>
   </section>
 
   <section class="card">
-    <h2>Scan log</h2>
+    <h2>Food log</h2>
     <button id="clearLogButton" type="button">Clear log</button>
     <p id="logStatus" class="muted" role="status"></p>
     <table>
-      <thead><tr><th>Item</th><th>Type</th><th>Match</th><th>Time</th></tr></thead>
+      <thead><tr><th>Food</th><th>Match</th><th>Time</th></tr></thead>
       <tbody id="logBody"></tbody>
     </table>
   </section>
@@ -129,7 +129,6 @@
         const row = document.createElement("tr");
         for (const value of [
           entry.item,
-          entry.item_type === "household" ? "Household" : "Food",
           `${Number(entry.confidence).toFixed(1)}%`,
           entry.time,
         ]) {
@@ -200,27 +199,23 @@
         const prediction = await response.json();
         if (!response.ok) throw new Error("Prediction failed. Please try again.");
         if (prediction.is_valid === false) {
-          result.textContent = prediction.label;
+          result.textContent = "This is not a food item.";
           return;
         }
         result.replaceChildren();
         const heading = document.createElement("h2");
         heading.textContent = prediction.label;
         const type = document.createElement("p");
-        type.textContent = prediction.item_type === "household" ? "Household item" : "Food";
+        type.textContent = "Food";
         const score = document.createElement("p");
         score.textContent = `${Number(prediction.confidence).toFixed(1)}% ${
           prediction.recognition_source === "general" ? "match score" : "confidence"
         }`;
         result.append(heading, type, score);
-        const others = prediction.item_type === "household"
-          ? prediction.additional_household_matches || []
-          : prediction.additional_food_matches || [];
+        const others = prediction.additional_food_matches || [];
         if (others.length) {
           const title = document.createElement("h3");
-          title.textContent = prediction.item_type === "household"
-            ? "Other possible household items"
-            : "Other possible foods";
+          title.textContent = "Other possible foods";
           const list = document.createElement("ul");
           for (const match of others) {
             const item = document.createElement("li");

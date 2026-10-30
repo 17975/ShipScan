@@ -1,9 +1,9 @@
 # ShipScan - Expo Go phone app
 
 Uses your phone camera and sends each photo over Wi-Fi to the ShipScan
-server (app.py) running on your computer. It recognizes food and common
-household items and reports when an image appears unrelated; recognition can
-make mistakes.
+server (app.py) running on your computer. It classifies food and reports when
+an image appears unrelated, including household objects and animals; recognition
+can make mistakes.
 
 ## Requirements
 - Node.js (https://nodejs.org, LTS version) on your computer
@@ -33,11 +33,12 @@ Then replace the generated `App.js` with the `App.js` from this folder
    Scan the QR code with your phone (Camera app on iPhone, Expo Go app on Android).
 
 3. In the app, type the server address from step 1, tap "Test connection".
-   You should see that food and household recognition is ready.
+   You should see that food recognition is ready.
 
-4. Point the camera at an item:
-   - "Scan & add to pantry" takes one photo and logs the result
-   - "Auto-scan" keeps recognising items every ~2.5 seconds
+4. Point the camera at food:
+   - "Scan food & add to log" takes one photo and logs food predictions
+   - Non-food photos are reported as "This is not a food item."
+   - "Auto-scan" keeps classifying the camera image every ~2.5 seconds
    - "Clear" removes the scan log stored in the app
 
 ## Troubleshooting
@@ -45,6 +46,6 @@ Then replace the generated `App.js` with the `App.js` from this folder
   Windows asks to allow Python through the firewall, click Allow (private networks).
 - University/guest Wi-Fi often blocks device-to-device traffic. Use your phone's
   hotspot for the laptop, or a home network.
-- General food and household recognition downloads its model weights the first
+- General food recognition downloads its model weights the first
   time the server starts, so the computer needs internet access on that first run.
 - After retraining, restart app.py.

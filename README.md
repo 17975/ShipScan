@@ -18,9 +18,10 @@ SmartPantry_Complete/
 └── requirements.txt
 ```
 
-The app combines your trained classes with a general image/text recognizer for
-food and common household items. It tries to reject images it identifies as
-unrelated, including animals, but image recognition is not perfect. The web app
+The app is for food classification. It combines your trained classes with a
+general image/text food recognizer. Household objects, animals, and unrelated
+images should be rejected with **"This is not a food item."**, though image
+recognition is not perfect. The web app
 supports photo uploads and webcam capture; its scan log is stored in that
 browser and can be cleared from the page. For best grocery results, add photos
 to `dataset/red_onion/` and `dataset/carrot/`, then rerun the split and training
@@ -83,7 +84,7 @@ images to the server.
    ```
    Copy the temporary `https://...trycloudflare.com` URL it prints.
 5. Open the GitHub Pages link. It connects automatically, supports webcam or
-   phone-camera capture, and shows a per-browser scan log with a **Clear log**
+   phone-camera capture, and shows a per-browser food log with a **Clear log**
    button. If you restart the temporary tunnel, update its address in
    `docs/index.html` and publish the change.
 

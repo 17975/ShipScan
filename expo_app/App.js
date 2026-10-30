@@ -51,9 +51,9 @@ export default function App() {
       const data = await res.json();
       setStatus(
         data.using_custom_model && data.using_general_food_model
-          ? '✅ Connected - using your trained model plus general food and household recognition'
+          ? '✅ Connected - using your trained model plus general food recognition'
           : data.using_general_food_model
-            ? '✅ Connected - using general food and household recognition'
+            ? '✅ Connected - using general food recognition'
             : '⚠️ Connected, but server has no recognition model'
       );
     } catch (e) {
@@ -148,7 +148,7 @@ export default function App() {
         </View>
 
         <TouchableOpacity style={styles.btn} onPress={() => scan(true)}>
-          <Text style={styles.btnText}>Scan & add to pantry</Text>
+          <Text style={styles.btnText}>Scan food & add to log</Text>
         </TouchableOpacity>
 
         {!!error && <Text style={styles.error}>{error}</Text>}
@@ -157,8 +157,8 @@ export default function App() {
           <View style={styles.card}>
             {result.is_valid === false ? (
               <>
-                <Text style={styles.resultMain}>This is not a household item or food.</Text>
-                <Text style={styles.sub}>Try scanning food or a common household item.</Text>
+                <Text style={styles.resultMain}>This is not a food item.</Text>
+                <Text style={styles.sub}>Try scanning a food item.</Text>
               </>
             ) : confident ? (
               <>
@@ -175,9 +175,9 @@ export default function App() {
             )}
             {result.is_valid !== false && (
               <Text style={styles.sub}>
-                {result.item_type === 'household' ? 'Household item' : 'Food'} · recognized by{' '}
+                Food · recognized by{' '}
                 {result.recognition_source === 'general'
-                  ? `general ${result.item_type} model`
+                  ? 'general food model'
                   : 'your trained model'}
               </Text>
             )}
@@ -189,16 +189,10 @@ export default function App() {
                 </View>
               </View>
             ))}
-            {!!(result.item_type === 'household'
-              ? (result.additional_household_matches || []).length
-              : (result.additional_food_matches || []).length) && (
+            {!!(result.additional_food_matches || []).length && (
               <View style={{ marginTop: 12 }}>
-                <Text style={styles.cardTitle}>
-                  {result.item_type === 'household' ? 'Other possible household items' : 'Other possible foods'}
-                </Text>
-                {(result.item_type === 'household'
-                  ? result.additional_household_matches
-                  : result.additional_food_matches).map((match) => (
+                <Text style={styles.cardTitle}>Other possible foods</Text>
+                {result.additional_food_matches.map((match) => (
                   <Text key={match.label} style={styles.small}>
                       {match.label}: {Number(match.confidence).toFixed(1)}% match score
                   </Text>
@@ -210,7 +204,7 @@ export default function App() {
 
         <View style={styles.card}>
           <View style={styles.row}>
-            <Text style={styles.cardTitle}>Pantry log</Text>
+            <Text style={styles.cardTitle}>Food log</Text>
             <TouchableOpacity onPress={() => setLog([])}><Text style={{ color: GREEN }}>Clear</Text></TouchableOpacity>
           </View>
           {log.length === 0 && <Text style={styles.small}>No items added yet.</Text>}
