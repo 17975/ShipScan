@@ -1,0 +1,9 @@
+.git
+.venv
+.venv311
+__pycache__
+*.py[cod]
+dataset/
+dataset_split/
+expo_app/
+training_history.png
