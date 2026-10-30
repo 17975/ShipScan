@@ -10,52 +10,36 @@
     h1 { color: #2f6f4f; }
     .card { margin: 16px 0; padding: 20px; border-radius: 10px; background: white; box-shadow: 0 1px 4px #0002; }
     label { display: block; margin: 12px 0 6px; font-weight: 600; }
-    input[type="url"], input[type="file"] { box-sizing: border-box; width: 100%; padding: 10px; }
+    input[type="file"] { box-sizing: border-box; width: 100%; padding: 10px; }
     button { margin: 8px 8px 0 0; padding: 10px 16px; border: 0; border-radius: 6px; background: #2f6f4f; color: white; cursor: pointer; }
     button:disabled { opacity: .6; cursor: wait; }
     #preview { display: none; max-width: 100%; max-height: 320px; margin-top: 12px; border-radius: 8px; }
     #status, #result { white-space: pre-wrap; overflow-wrap: anywhere; }
     .muted { color: #555; font-size: .92rem; }
-    .warning { padding: 12px; border: 1px solid #c98a1f; border-radius: 6px; background: #fff4e5; }
     li { margin: 6px 0; }
   </style>
 </head>
 <body>
   <h1>🥫 ShipScan</h1>
-  <p>Scan a grocery photo with ShipScan's food prediction server.</p>
-  <p class="warning">This public page needs the temporary prediction-server URL from the owner.
-    The computer running the model must stay on. Anyone who knows that URL can submit images.</p>
-
-  <section class="card">
-    <label for="serverUrl">Prediction server URL</label>
-    <input id="serverUrl" type="url" placeholder="https://your-temporary-name.trycloudflare.com"
-      autocomplete="url">
-    <button id="connectButton" type="button">Test connection</button>
-    <p id="status" class="muted" role="status"></p>
-  </section>
+  <p>Scan a grocery photo to identify the food.</p>
 
   <section class="card">
     <label for="imageInput">Food photo</label>
     <input id="imageInput" type="file" accept="image/*">
     <img id="preview" alt="Selected food photo">
-    <button id="scanButton" type="button">Predict food</button>
+    <button id="scanButton" type="button">Scan food</button>
+    <p id="connectionStatus" class="muted" role="status">Connecting to scanner...</p>
     <div id="result" aria-live="polite"></div>
   </section>
 
   <script>
-    const serverInput = document.getElementById("serverUrl");
+    const predictionServer = "https://picnic-father-heads-olympics.trycloudflare.com";
     const imageInput = document.getElementById("imageInput");
     const preview = document.getElementById("preview");
-    const status = document.getElementById("status");
+    const connectionStatus = document.getElementById("connectionStatus");
     const result = document.getElementById("result");
-    const connectButton = document.getElementById("connectButton");
     const scanButton = document.getElementById("scanButton");
-
-    const defaultServerUrl = "https://picnic-father-heads-olympics.trycloudflare.com";
-    serverInput.value = localStorage.getItem("shipscan-server-url") || defaultServerUrl;
-    serverInput.addEventListener("change", () => {
-      localStorage.setItem("shipscan-server-url", serverInput.value.trim().replace(/\/+$/, ""));
-    });
+    let scannerReady = false;
 
     imageInput.addEventListener("change", () => {
       const file = imageInput.files[0];
@@ -63,35 +47,26 @@
       preview.style.display = file ? "block" : "none";
     });
 
-    function serverBase() {
-      return serverInput.value.trim().replace(/\/+$/, "");
-    }
-
-    connectButton.addEventListener("click", async () => {
-      if (!serverBase()) {
-        status.textContent = "Enter the prediction-server URL first.";
-        return;
-      }
-      connectButton.disabled = true;
-      status.textContent = "Connecting...";
+    async function connectToScanner() {
+      connectionStatus.textContent = "Connecting to scanner...";
       try {
-        const response = await fetch(`${serverBase()}/health`);
+        const response = await fetch(`${predictionServer}/health`);
         if (!response.ok) throw new Error(`Server returned ${response.status}`);
         const health = await response.json();
-        status.textContent = health.status === "ok"
-          ? "Connected. Food recognition is ready."
-          : "Server responded, but recognition is not ready.";
-      } catch (error) {
-        status.textContent = `Could not connect: ${error.message}`;
-      } finally {
-        connectButton.disabled = false;
+        scannerReady = health.status === "ok" && health.using_general_food_model;
+        connectionStatus.textContent = scannerReady
+          ? "Scanner ready."
+          : "Scanner is temporarily unavailable. Please try again.";
+      } catch {
+        scannerReady = false;
+        connectionStatus.textContent = "Scanner is temporarily unavailable. Please try again.";
       }
-    });
+    }
 
     scanButton.addEventListener("click", async () => {
       const file = imageInput.files[0];
-      if (!serverBase() || !file) {
-        result.textContent = "Enter the server URL and choose a food photo.";
+      if (!file) {
+        result.textContent = "Choose a food photo first.";
         return;
       }
       const form = new FormData();
@@ -100,9 +75,13 @@
       scanButton.disabled = true;
       result.textContent = "Predicting...";
       try {
-        const response = await fetch(`${serverBase()}/predict`, { method: "POST", body: form });
+        if (!scannerReady) {
+          await connectToScanner();
+          if (!scannerReady) throw new Error("Scanner is temporarily unavailable. Please try again.");
+        }
+        const response = await fetch(`${predictionServer}/predict`, { method: "POST", body: form });
         const prediction = await response.json();
-        if (!response.ok) throw new Error(prediction.error || `Server returned ${response.status}`);
+        if (!response.ok) throw new Error("Prediction failed. Please try again.");
         result.replaceChildren();
         const heading = document.createElement("h2");
         heading.textContent = prediction.label;
@@ -123,12 +102,16 @@
           }
           result.append(title, list);
         }
-      } catch (error) {
-        result.textContent = `Prediction failed: ${error.message}`;
+      } catch {
+        scannerReady = false;
+        connectionStatus.textContent = "Scanner is temporarily unavailable. Please try again.";
+        result.textContent = "Could not scan this photo. Please try again.";
       } finally {
         scanButton.disabled = false;
       }
     });
+
+    connectToScanner();
   </script>
 </body>
 </html>
