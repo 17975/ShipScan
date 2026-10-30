@@ -51,7 +51,8 @@
     const connectButton = document.getElementById("connectButton");
     const scanButton = document.getElementById("scanButton");
 
-    serverInput.value = localStorage.getItem("shipscan-server-url") || "";
+    const defaultServerUrl = "https://picnic-father-heads-olympics.trycloudflare.com";
+    serverInput.value = localStorage.getItem("shipscan-server-url") || defaultServerUrl;
     serverInput.addEventListener("change", () => {
       localStorage.setItem("shipscan-server-url", serverInput.value.trim().replace(/\/+$/, ""));
     });
