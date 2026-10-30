@@ -80,9 +80,9 @@ images to the server.
    cloudflared tunnel --url http://127.0.0.1:5001
    ```
    Copy the temporary `https://...trycloudflare.com` URL it prints.
-5. Open the GitHub Pages link, paste the tunnel URL into **Prediction server
-   URL**, test the connection, and choose a food photo. The tunnel URL changes
-   whenever you restart it, so each visitor must enter the current URL.
+5. Open the GitHub Pages link and test the prefilled server URL. If you restart
+   the tunnel, replace the saved server URL with the new one; visitors' browsers
+   may need to clear their saved value too.
 
 Quick Tunnels are for testing, have no uptime guarantee, and stop working when
 `cloudflared` exits. They do not make the prediction service permanently hosted.
